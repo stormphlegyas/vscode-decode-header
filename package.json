@@ -2,7 +2,7 @@
   "name": "decodeheader",
   "displayName": "Decode Header",
   "description": "Decode school header for VSCode : ecole-decode.fr",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "stormphlegyas",
   "icon": "decode.png",
   "repository": {
