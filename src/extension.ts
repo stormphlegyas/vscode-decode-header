@@ -1,0 +1,105 @@
+import { basename } from 'path'
+import vscode = require('vscode')
+import moment = require('moment')
+
+import {
+  ExtensionContext, TextEdit, TextEditorEdit, TextDocument, Position, Range
+} from 'vscode'
+
+import {
+  extractHeader, getHeaderInfo, renderHeader,
+  supportsLanguage, HeaderInfo
+} from './header'
+
+const getCurrentUser = () =>
+  vscode.workspace.getConfiguration()
+    .get('decodeheader.username') || process.env['USER'] || 'student'
+
+const getCurrentUserMail = () =>
+  vscode.workspace.getConfiguration()
+    .get('decodeheader.email') || `${getCurrentUser()}@ecole-decode.fr`
+
+const newHeaderInfo = (document: TextDocument, headerInfo?: HeaderInfo) => {
+  const user = getCurrentUser()
+  const mail = getCurrentUserMail()
+
+  return Object.assign({},
+    {
+      createdAt: moment(),
+      createdBy: user
+    },
+    headerInfo,
+    {
+      filename: basename(document.fileName),
+      author: `${user} <${mail}>`,
+      updatedBy: user,
+      updatedAt: moment()
+    }
+  )
+}
+
+const insertHeaderHandler = () => {
+  const { activeTextEditor } = vscode.window
+  const { document } = activeTextEditor
+
+  const isAssembly = /(?:asm|assembly)/i.test(document.languageId);
+
+  if (supportsLanguage(document.languageId) || isAssembly)
+    activeTextEditor.edit(editor => {
+      const currentHeader = extractHeader(document.getText())
+
+      if (currentHeader)
+        editor.replace(
+          new Range(0, 0, 12, 0),
+          renderHeader(
+            document.languageId,
+            newHeaderInfo(document, getHeaderInfo(currentHeader))
+          )
+        )
+      else
+        editor.insert(
+          new Position(0, 0),
+          renderHeader(
+            document.languageId,
+            newHeaderInfo(document)
+          )
+        )
+    })
+  else
+    vscode.window.showInformationMessage(
+      `No header support for language ${document.languageId}`
+    )
+}
+
+const startUpdateOnSaveWatcher = (subscriptions: vscode.Disposable[]) =>
+  vscode.workspace.onWillSaveTextDocument(event => {
+    const document = event.document
+    const currentHeader = extractHeader(document.getText())
+
+    event.waitUntil(
+      Promise.resolve(
+        supportsLanguage(document.languageId) && currentHeader ?
+          [
+            TextEdit.replace(
+              new Range(0, 0, 12, 0),
+              renderHeader(
+                document.languageId,
+                newHeaderInfo(document, getHeaderInfo(currentHeader))
+              )
+            )
+          ]
+          : []
+      )
+    )
+  },
+    null, subscriptions
+  )
+
+
+export const activate = (context: vscode.ExtensionContext) => {
+  const disposable = vscode.commands
+    .registerTextEditorCommand('decodeheader.insertHeader', insertHeaderHandler)
+
+  context.subscriptions.push(disposable)
+  startUpdateOnSaveWatcher(context.subscriptions)
+}
