@@ -8,7 +8,7 @@ import {
 
 import {
   extractHeader, getHeaderInfo, renderHeader,
-  supportsLanguage, HeaderInfo
+  supportsLanguage, HeaderInfo, headerHeight
 } from './header'
 
 const getCurrentUser = () =>
@@ -38,6 +38,14 @@ const newHeaderInfo = (document: TextDocument, headerInfo?: HeaderInfo) => {
   )
 }
 
+// Header lines, plus the blank line that follows it when there is one
+const headerRange = (document: TextDocument) =>
+  new Range(0, 0,
+    document.lineCount > headerHeight && document.lineAt(headerHeight).isEmptyOrWhitespace
+      ? headerHeight + 1
+      : headerHeight,
+    0)
+
 const insertHeaderHandler = () => {
   const { activeTextEditor } = vscode.window
   const { document } = activeTextEditor
@@ -50,7 +58,7 @@ const insertHeaderHandler = () => {
 
       if (currentHeader)
         editor.replace(
-          new Range(0, 0, 12, 0),
+          headerRange(document),
           renderHeader(
             document.languageId,
             newHeaderInfo(document, getHeaderInfo(currentHeader))
@@ -81,7 +89,7 @@ const startUpdateOnSaveWatcher = (subscriptions: vscode.Disposable[]) =>
         supportsLanguage(document.languageId) && currentHeader ?
           [
             TextEdit.replace(
-              new Range(0, 0, 12, 0),
+              headerRange(document),
               renderHeader(
                 document.languageId,
                 newHeaderInfo(document, getHeaderInfo(currentHeader))
