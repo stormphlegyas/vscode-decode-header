@@ -17,7 +17,7 @@ const getCurrentUser = () =>
 
 const getCurrentUserMail = () =>
   vscode.workspace.getConfiguration()
-    .get('decodeheader.email') || `${getCurrentUser()}@ecole-decode.fr`
+    .get('decodeheader.email') || process.env['EMAIL'] || `${getCurrentUser()}@ecole-decode.fr`
 
 const newHeaderInfo = (document: TextDocument, headerInfo?: HeaderInfo) => {
   const user = getCurrentUser()
