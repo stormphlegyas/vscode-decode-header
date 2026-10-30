@@ -47,8 +47,26 @@ const getTemplate = (languageId: string) => {
     .join('\n');
 };
 
-const pad = (value: string, width: number) =>
-  value.concat(' '.repeat(width)).substr(0, width)
+// Characters taking two columns in a monospace font (CJK, emoji)
+const wideChar = /[\u1100-\u115F\u2E80-\u303E\u3041-\u33FF\u3400-\u4DBF\u4E00-\u9FFF\uA000-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE4F\uFF00-\uFF60\uFFE0-\uFFE6\u{20000}-\u{3FFFD}]|\p{Emoji_Presentation}/u
+
+const charWidth = (char: string) =>
+  /[\p{M}\p{Cf}]/u.test(char) ? 0 : wideChar.test(char) ? 2 : 1
+
+// Truncate or pad value with spaces so it takes exactly width columns
+const pad = (value: string, width: number) => {
+  let result = ''
+  let used = 0
+
+  for (const char of value.normalize('NFC').replace(/\p{Cc}/gu, ' ')) {
+    const charCols = charWidth(char)
+    if (used + charCols > width) break
+    result += char
+    used += charCols
+  }
+
+  return result.concat(' '.repeat(width - used))
+}
 
 const formatDate = (date: moment.Moment) =>
   date.format('YYYY/MM/DD HH:mm:ss')
@@ -59,22 +77,56 @@ const parseDate = (date: string) =>
 export const supportsLanguage = (languageId: string) =>
   languageId in languageDelimiters
 
-export const extractHeader = (text: string): string | null => {
-  const headerRegex = `^(.{80}(\r\n|\n)){10}`
-  const match = text.match(headerRegex)
+export const headerHeight = 11
+const border = /\*{20,}/
+const dateField = '(\\d{4}/\\d{2}/\\d{2} \\d{2}:\\d{2}:\\d{2})'
+// Words separated by single spaces, the next field or the logo is further away
+const textField = '(\\S+(?: \\S+)*)'
 
-  return match ? match[0].split('\r\n').join('\n') : null
+const fieldRegexes = {
+  filename: new RegExp(`^\\S*\\s+${textField}`),
+  author: new RegExp(`By: ${textField}`),
+  created: new RegExp(`Created: ${dateField} by ${textField}`),
+  updated: new RegExp(`Updated: ${dateField} by ${textField}`)
+}
+
+// Fields are parsed by label rather than by column, so headers deformed by
+// a previous version (values too wide) are still recognized and re-rendered
+export const extractHeader = (text: string): string | null => {
+  const lines = text.split(/\r?\n/, headerHeight)
+
+  return lines.length === headerHeight
+    && border.test(lines[0])
+    && border.test(lines[headerHeight - 1])
+    && fieldRegexes.created.test(lines[7])
+    && fieldRegexes.updated.test(lines[8])
+    ? lines.join('\n')
+    : null
+}
+
+const matchField = (line: string, regex: RegExp) =>
+  line.match(regex) || []
+
+export const getHeaderInfo = (header: string): HeaderInfo => {
+  const lines = header.split('\n')
+  const [, filename = ''] = matchField(lines[3], fieldRegexes.filename)
+  const [, author = ''] = matchField(lines[5], fieldRegexes.author)
+  const [, createdAt = '', createdBy = ''] = matchField(lines[7], fieldRegexes.created)
+  const [, updatedAt = '', updatedBy = ''] = matchField(lines[8], fieldRegexes.updated)
+
+  return {
+    filename,
+    author,
+    createdBy,
+    createdAt: parseDate(createdAt),
+    updatedBy,
+    updatedAt: parseDate(updatedAt)
+  }
 }
 
 // Returns [ global match, offset, field ]
 const fieldRegex = (name: string) =>
   new RegExp(`^((?:.*\\\n)*.*)(\\\$${name}_*)`, '')
-
-const getFieldValue = (header: string, name: string) => {
-  const [_, offset, field] = genericTemplate.match(fieldRegex(name))
-
-  return header.substr(offset.length, field.length)
-}
 
 const setFieldValue = (header: string, name: string, value: string) => {
   const [_, offset, field] = genericTemplate.match(fieldRegex(name))
@@ -84,15 +136,8 @@ const setFieldValue = (header: string, name: string, value: string) => {
     .concat(header.substr(offset.length + field.length))
 }
 
-export const getHeaderInfo = (header: string): HeaderInfo => ({
-  filename: getFieldValue(header, 'FILENAME'),
-  author: getFieldValue(header, 'AUTHOR'),
-  createdBy: getFieldValue(header, 'CREATEDBY'),
-  createdAt: parseDate(getFieldValue(header, 'CREATEDAT')),
-  updatedBy: getFieldValue(header, 'UPDATEDBY'),
-  updatedAt: parseDate(getFieldValue(header, 'UPDATEDAT'))
-})
-
+// Fields are set from the last one so a value whose length differs from its
+// width (wide characters) does not shift the offsets of the next ones
 export const renderHeader = (languageId: string, info: HeaderInfo) => [
   { name: 'FILENAME', value: info.filename },
   { name: 'AUTHOR', value: info.author },
@@ -100,6 +145,6 @@ export const renderHeader = (languageId: string, info: HeaderInfo) => [
   { name: 'CREATEDBY', value: info.createdBy },
   { name: 'UPDATEDAT', value: formatDate(info.updatedAt) },
   { name: 'UPDATEDBY', value: info.updatedBy }
-].reduce((header, field) =>
+].reduceRight((header, field) =>
   setFieldValue(header, field.name, field.value),
   getTemplate(languageId))
